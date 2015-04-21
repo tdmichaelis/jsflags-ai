@@ -1,4 +1,4 @@
-var port = "8003";
+ var port = "8003";
 var url = 'http://localhost:' + port;
 var socketio = require('socket.io-client');
 var socket = socketio(url);
@@ -14,9 +14,17 @@ if (process.argv[2]) {
 	playerSelection = parseInt(process.argv[2], 10);
 }
 
+// Variables
 var enemyBases = [];
 var myTanks = [];
 var allBases = [];
+var myBase = [];
+var enemyTanks = [];
+var myFlag = [];
+var roadBlock = [];
+var myColor;
+var obstacles;
+
 socket.on("init", function(initD) {
 	if (connected) {
 		return false;
@@ -27,14 +35,26 @@ socket.on("init", function(initD) {
 	connected = true;
 	initData = initD;
 	selectedPlayer = initData.players[playerSelection];
+
+	// Set my Color
+	myColor = selectedPlayer.playerColor;
+
 	command = socketio(url + "/" + selectedPlayer.namespace);
+
 	enemyBases = initData.players.filter(function(p) {
 		return selectedPlayer.playerColor !== p.playerColor;
 	});
+
+	myBase = initData.players.filter(function(p) {
+		return selectedPlayer.playerColor == p.playerColor;
+	})[0].base;
+
 	allBases = initData.players;
+		
 	var serverTanks = initData.tanks.filter(function(t) {
 		return selectedPlayer.playerColor === t.color;
 	});
+
 	for (var i = 0; i < serverTanks.length; i++) {
 		myTanks.push(new Tank(i));
 	}
@@ -87,11 +107,20 @@ socket.on("refresh", function(gameState) {
 		return selectedPlayer.playerColor === t.color;
 	});
 
+	test = gameState.flags.filter(function(t) {
+		if(selectedPlayer.playerColor !== t.color && t.tankToFollow !== null) {
+			var enemyFlag = t.position;
+		} else {
+			return;
+		}
+	});
+
+	if (gameState.boundaries.length > 0) {
+		calculateObstacle(gameState.boundaries);
+	}
+
 	updateMyTanks(myTanksNewPosition);
 	calculateGoal();
-	// if (gameState.boundaries.length > 0) {
-	// 	//calculateObstacle(gameState.boundaries);
-	// }
 	
 });
 
@@ -99,8 +128,27 @@ function updateMyTanks (myTanksNewPosition) {
 	for (var i = 0; i < myTanks.length; i++) {
 		for (var j = 0; j < myTanksNewPosition.length; j++) {
 			if (myTanks[i].tankNumber === myTanksNewPosition[j].tankNumber) {
+
+				//Brett Code
+				if(Math.abs(myTanks[i].position.x - myTanksNewPosition[j].position.x) == 0 && Math.abs(myTanks[i].position.y - myTanksNewPosition[j].position.y) == 0 ) {
+
+					myTanks[i].stuck = !myTanks[i].stuck;
+
+				}
+				//End Brett Code
+
+				// Avoid the Obstacles
+				for (var k = 0; k < obstacles.length; k++) {
+					if(Math.abs(myTanks[i].position.x - obstacles[k].position.x) <= 30 && Math.abs(myTanks[i].position.y - obstacles[k].position.y) <= 30 ) {
+
+						myTanks[i].stuck = !myTanks[i].stuck;
+
+					}
+				}
+
 				myTanks[i].position = myTanksNewPosition[j].position;
 				myTanks[i].angle = myTanksNewPosition[j].angle;
+				myTanks[i].hasFlag = myTanksNewPosition[j].hasFlag;
 			}
 		}
 	}
@@ -158,12 +206,17 @@ function calculateGoal() {
 			//myTanks[i].goal.speed = 0;
 			myTanks[i].missionAccomplished();
 		}
+		// Brett Code
+		if(myTanks[i].stuck) {
+			myTanks[i].backup();
+		}
+		// End Brett code
 	}
 }
 
-// function calculateObstacle(obstacles) {
-
-// }
+function calculateObstacle(obstacle) {
+	obstacles = obstacle;
+}
 
 
 
@@ -183,35 +236,67 @@ var Tank = function(tankNumber) {
 		speed: 0,
 		angleVel: 0
 	};
+	this.hasFlag = false;
 	this.target = {x: 100, y: 100};
 	this.hasATarget = false;
+	this.stuck = false;
 };
 
 Tank.prototype = {
 	getTarget: function() {
-		return this.target;
+		
+		if(this.hasFlag) {
+			this.runHome();
+		} else {
+			this.attack();
+		}
+
 	},
 	hasTarget: function() {
 		return this.hasATarget;
 	},
 	generateTarget: function() {
-		/* //wander between enemy bases
-		var randomNumber = Math.floor(Math.random() * 10 % enemyBases.length); //random num between 0 and enemyBases.length
-		//var randomNumber = 1;
-		//console.log(randomNumber, enemyBases[randomNumber].base);
-		this.target = enemyBases[randomNumber].base.position;
-		*/
 
-		//wander between all bases
-		var randomNumber = Math.floor(Math.random() * 10 % allBases.length); //random num between 0 and enemyBases.length
-		this.target = allBases[randomNumber].base.position;
+		if(this.hasFlag) {
+			return this.runHome();
+		} else {
+			return this.attack();
+		}
 
-		this.hasATarget = true;
-		return this.target;
 	},
 	missionAccomplished: function() {
 		this.hasATarget = false;
+	},
+	runHome: function() {
+		return myBase.position;
+	},
+	attack: function() {
+		if(typeof enemyFlag != 'undefined') {
+			this.target = enemyFlag;
+		} else {
+			this.target = enemyBases[0].base.position;
+		}
+		return this.target;
+	},
+	wander: function() {
+		var randomNumber = Math.floor(Math.random() * 10 % enemyBases.length); //random num between 0 and enemyBases.length
+		this.target = enemyBases[randomNumber].base.position;
+	},
+	// Brett Code
+	backup: function() {
+		this.goal.speed = -1;
+		this.goal.angleVel = 0;
+		this.stuck = false;
+	},
+	avoidObstacle: function() {
+		for (var i = 0; i < obstacles.length; i++) {
+			if(Math.abs(this.position.x - obstacles[i].position.x) <= 30 && Math.abs(this.position.y - obstacles[i].position.y) <= 30 )
+			if(this.position.x ) {
+
+			}
+		}
 	}
+	// End Brett Code
 };
 
 
