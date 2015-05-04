@@ -24,8 +24,10 @@ var myFlag = [];
 var roadBlock = [];
 var myColor;
 var obstacles;
+var enemyFlag;
 
 socket.on("init", function(initD) {
+
 	if (connected) {
 		return false;
 	}
@@ -103,17 +105,16 @@ function fire() {
 
 /** recieve from server **/
 socket.on("refresh", function(gameState) {
+
 	var myTanksNewPosition = gameState.tanks.filter(function(t) {
 		return selectedPlayer.playerColor === t.color;
 	});
 
-	test = gameState.flags.filter(function(t) {
-		if(selectedPlayer.playerColor !== t.color && t.tankToFollow !== null) {
-			var enemyFlag = t.position;
-		} else {
-			return;
-		}
-	});
+	enemyFlag = gameState.flags.filter(function(t) {
+
+		return t.color !== selectedPlayer.playerColor;
+
+	})[0];
 
 	if (gameState.boundaries.length > 0) {
 		calculateObstacle(gameState.boundaries);
@@ -244,12 +245,13 @@ var Tank = function(tankNumber) {
 
 Tank.prototype = {
 	getTarget: function() {
-		
+
 		if(this.hasFlag) {
-			this.runHome();
+			return this.runHome();
 		} else {
-			this.attack();
+			return this.attack();
 		}
+
 
 	},
 	hasTarget: function() {
@@ -271,17 +273,18 @@ Tank.prototype = {
 		return myBase.position;
 	},
 	attack: function() {
-		if(typeof enemyFlag != 'undefined') {
-			this.target = enemyFlag;
+
+		if (this.hasFlag) {
+			return this.runHome();
 		} else {
-			this.target = enemyBases[0].base.position;
+			return enemyFlag.position;
 		}
-		return this.target;
+
 	},
-	wander: function() {
-		var randomNumber = Math.floor(Math.random() * 10 % enemyBases.length); //random num between 0 and enemyBases.length
-		this.target = enemyBases[randomNumber].base.position;
-	},
+	// wander: function() {
+	// 	var randomNumber = Math.floor(Math.random() * 10 % enemyBases.length); //random num between 0 and enemyBases.length
+	// 	this.target = enemyBases[randomNumber].base.position;
+	// },
 	// Brett Code
 	backup: function() {
 		this.goal.speed = -1;
